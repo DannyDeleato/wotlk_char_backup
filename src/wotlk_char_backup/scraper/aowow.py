@@ -458,6 +458,168 @@ class AoWoWScraper:
 
         return GearSet(**final_gear_data)
 
+    def _parse_achievements(
+        self, html: str, soup: BeautifulSoup, js_data: Dict[str, Any], base_url: str
+    ) -> List[Achievement]:
+        """Parse completed achievements.
+
+        Args:
+            html: Page HTML
+            soup: BeautifulSoup parsed HTML
+            js_data: Extracted JavaScript data
+            base_url: Base URL for constructing icon URLs
+
+        Returns:
+            List of Achievement models
+        """
+        achievements: List[Achievement] = []
+
+        # Try to find achievement data in JavaScript
+        # Common patterns: g_achievements, listviewachievements, etc.
+        achievement_data = js_data.get("g_achievements", {})
+
+        if achievement_data:
+            # If we have JavaScript data, parse it
+            for ach_id, ach_info in achievement_data.items():
+                if isinstance(ach_info, dict):
+                    achievement = Achievement(
+                        achievement_id=int(ach_id),
+                        name=ach_info.get("name", f"Achievement {ach_id}"),
+                        description=ach_info.get("description", ""),
+                        points=ach_info.get("points", 0),
+                        category=ach_info.get("category", "Unknown"),
+                        completed_date=None,  # Parse timestamp if available
+                        icon_url=ach_info.get("icon"),
+                    )
+                    achievements.append(achievement)
+        else:
+            # Try to parse from HTML
+            # Look for achievement links or lists
+            ach_links = soup.find_all("a", href=re.compile(r"\?achievement="))
+            for link in ach_links:
+                href = link.get("href", "")
+                ach_match = re.search(r"achievement=(\d+)", href)
+                if ach_match:
+                    ach_id = int(ach_match.group(1))
+                    achievement = Achievement(
+                        achievement_id=ach_id,
+                        name=link.get_text(strip=True) or f"Achievement {ach_id}",
+                        description=link.get("title", ""),
+                        points=int(link.get("data-points", "0")),
+                        category=link.get("data-category", "Unknown"),
+                        completed_date=None,
+                        icon_url=None,
+                    )
+                    achievements.append(achievement)
+
+        return achievements
+
+    def _parse_mounts(
+        self, html: str, soup: BeautifulSoup, js_data: Dict[str, Any], base_url: str
+    ) -> List[Mount]:
+        """Parse collected mounts.
+
+        Args:
+            html: Page HTML
+            soup: BeautifulSoup parsed HTML
+            js_data: Extracted JavaScript data
+            base_url: Base URL for constructing icon URLs
+
+        Returns:
+            List of Mount models
+        """
+        mounts: List[Mount] = []
+
+        # Try to find mount data in JavaScript
+        mount_data = js_data.get("g_mounts", {}) or js_data.get("g_spells", {})
+
+        if mount_data:
+            # Parse from JavaScript data
+            for mount_id, mount_info in mount_data.items():
+                if isinstance(mount_info, dict) and mount_info.get("type") == "mount":
+                    mount = Mount(
+                        mount_id=int(mount_id),
+                        name=mount_info.get("name", f"Mount {mount_id}"),
+                        spell_id=int(mount_info.get("spell_id", mount_id)),
+                        icon_url=mount_info.get("icon"),
+                        source=mount_info.get("source"),
+                    )
+                    mounts.append(mount)
+        else:
+            # Try to parse from HTML
+            # Look for spell links that are mounts
+            spell_links = soup.find_all("a", href=re.compile(r"\?spell="))
+            for link in spell_links:
+                # Check if this is a mount (usually in a mounts section)
+                if "mount" in link.get("class", []) or "mount" in str(link.parent):
+                    href = link.get("href", "")
+                    spell_match = re.search(r"spell=(\d+)", href)
+                    if spell_match:
+                        spell_id = int(spell_match.group(1))
+                        mount = Mount(
+                            mount_id=spell_id,
+                            name=link.get_text(strip=True) or f"Mount {spell_id}",
+                            spell_id=spell_id,
+                            icon_url=None,
+                            source=None,
+                        )
+                        mounts.append(mount)
+
+        return mounts
+
+    def _parse_pets(
+        self, html: str, soup: BeautifulSoup, js_data: Dict[str, Any], base_url: str
+    ) -> List[Pet]:
+        """Parse collected companion pets.
+
+        Args:
+            html: Page HTML
+            soup: BeautifulSoup parsed HTML
+            js_data: Extracted JavaScript data
+            base_url: Base URL for constructing icon URLs
+
+        Returns:
+            List of Pet models
+        """
+        pets: List[Pet] = []
+
+        # Try to find pet data in JavaScript
+        pet_data = js_data.get("g_pets", {}) or js_data.get("g_companions", {})
+
+        if pet_data:
+            # Parse from JavaScript data
+            for pet_id, pet_info in pet_data.items():
+                if isinstance(pet_info, dict):
+                    pet = Pet(
+                        pet_id=int(pet_id),
+                        name=pet_info.get("name", f"Pet {pet_id}"),
+                        spell_id=int(pet_info.get("spell_id", pet_id)),
+                        icon_url=pet_info.get("icon"),
+                        source=pet_info.get("source"),
+                    )
+                    pets.append(pet)
+        else:
+            # Try to parse from HTML
+            # Look for spell links that are companion pets
+            spell_links = soup.find_all("a", href=re.compile(r"\?spell="))
+            for link in spell_links:
+                # Check if this is a companion pet
+                if "companion" in link.get("class", []) or "pet" in str(link.parent):
+                    href = link.get("href", "")
+                    spell_match = re.search(r"spell=(\d+)", href)
+                    if spell_match:
+                        spell_id = int(spell_match.group(1))
+                        pet = Pet(
+                            pet_id=spell_id,
+                            name=link.get_text(strip=True) or f"Pet {spell_id}",
+                            spell_id=spell_id,
+                            icon_url=None,
+                            source=None,
+                        )
+                        pets.append(pet)
+
+        return pets
+
     def scrape_profile(self, profile_url: str) -> CharacterExport:
         """Scrape a complete character profile.
 
@@ -486,10 +648,14 @@ class AoWoWScraper:
         # Parse gear
         gear = self._parse_gear(html, soup, js_data, base_url)
 
-        # TODO: Parse achievements, mounts, pets
-        achievements: list[Achievement] = []
-        mounts: list[Mount] = []
-        pets: list[Pet] = []
+        # Parse achievements
+        achievements = self._parse_achievements(html, soup, js_data, base_url)
+
+        # Parse mounts
+        mounts = self._parse_mounts(html, soup, js_data, base_url)
+
+        # Parse companion pets
+        pets = self._parse_pets(html, soup, js_data, base_url)
 
         return CharacterExport(
             character=character,

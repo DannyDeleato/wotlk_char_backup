@@ -1,6 +1,6 @@
 """Configuration management for WotLK Character Backup."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -18,7 +18,7 @@ class ScrapingConfig:
 class Config:
     """Main application configuration."""
 
-    scraping: ScrapingConfig = ScrapingConfig()
+    scraping: ScrapingConfig = field(default_factory=ScrapingConfig)
     output_format: str = "json"
     compress: bool = False
     verbose: bool = False
